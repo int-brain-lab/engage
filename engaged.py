@@ -328,7 +328,6 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
 
 
 def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False):
-
     # Load model parameters
     if unbiased:
         ttt = '/home/mic/glm-hmm/results/individual_fit_own'
@@ -339,94 +338,108 @@ def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False
                        f'{animal}_model_params.npy')
     model_params = np.load(animal_file, allow_pickle=True).flat[0]
 
-    gen_weights = model_params['gen_weights']
-    trans_mat = model_params['trans_mat']
+    gen_weights     = model_params['gen_weights']
+    trans_mat       = model_params['trans_mat']
     posterior_probs = model_params['posterior_probs']
 
-    posterior_probs_concat = np.concatenate(posterior_probs)
-    state_max_posterior = np.argmax(posterior_probs_concat, axis=1)
-    _, state_occupancies = np.unique(state_max_posterior, return_counts=True)
+    # session & trial info
+    n_sessions = len(posterior_probs)
+    trials_per_session = [arr.shape[0] for arr in posterior_probs]
+    trials_str = ", ".join(str(n) for n in trials_per_session)
 
-    dwell_info = compute_dwell_times_with_states(posterior_probs)
+    # get which state on each trial
+    posterior_concat    = np.concatenate(posterior_probs)
+    state_seq           = np.argmax(posterior_concat, axis=1)
 
     num_states = gen_weights.shape[0]
-    input_dim = gen_weights.shape[2]
+    # build full-length occupancy array
+    vals, counts        = np.unique(state_seq, return_counts=True)
+    state_occupancies   = np.zeros(num_states, dtype=int)
+    state_occupancies[vals] = counts
 
-    inpts_names = ['stim', 'bias', 'prev_choice', 'WSLS']
-    cols = ['#ff7f00', '#4daf4a', '#377eb8'][:num_states]
+    dwell_info           = compute_dwell_times_with_states(posterior_probs)
 
-    fig = plt.figure(figsize=(14, 3), dpi=80, facecolor='w', edgecolor='k')  
+    #num_states = gen_weights.shape[0]
+    input_dim  = gen_weights.shape[2]
+    inpts      = ['stim','bias','prev_choice','WSLS']
+    cols       = ['#ff7f00','#4daf4a','#377eb8'][:num_states]
 
-    # Panel 1: generative weights
-    plt.subplot(1, 5, 1)
+    fig = plt.figure(figsize=(14, 3), dpi=80)
+
+    def clean_spines(ax):
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    # 1: Generative weights
+    ax1 = plt.subplot(1,5,1)
     for k in range(num_states):
-        plt.plot(range(input_dim), gen_weights[k][0], marker='o',
-                 color=cols[k], linestyle='-', lw=1.5, label=f"state {k+1}")
-    plt.yticks(fontsize=10)
-    plt.ylabel("GLM weight", fontsize=12)
-    plt.xlabel("covariate", fontsize=12)
-    plt.xticks(range(input_dim), inpts_names, fontsize=10, rotation=45)
-    plt.axhline(y=0, color="k", alpha=0.5, ls="--")
-    plt.title("Generative weights", fontsize=13)
+        ax1.plot(gen_weights[k][0], marker='o', color=cols[k], lw=1.5)
+    ax1.axhline(0, color='k', alpha=0.5, ls='--')
+    ax1.set_xticks(range(input_dim))
+    ax1.set_xticklabels(inpts, rotation=45, fontsize=10)
+    ax1.set_ylabel("GLM weight")
+    ax1.set_title("Generative weights")
+    clean_spines(ax1)
 
-    # Panel 2: transition matrix
-    plt.subplot(1, 5, 2)
-    plt.imshow(trans_mat, vmin=-0.8, vmax=1, cmap='bone')
+    # 2: Transition matrix
+    ax2 = plt.subplot(1,5,2)
+    ax2.imshow(trans_mat, vmin=-0.8, vmax=1, cmap='bone')
     for i in range(num_states):
         for j in range(num_states):
-            plt.text(j, i, str(np.around(trans_mat[i, j], 2)), ha="center", va="center",
-                     color="k", fontsize=10)
-    plt.xticks(range(num_states), [str(i+1) for i in range(num_states)], fontsize=9)
-    plt.yticks(range(num_states), [str(i+1) for i in range(num_states)], fontsize=9)
-    plt.xlim(-0.5, num_states - 0.5)
-    plt.ylim(num_states - 0.5, -0.5)
-    plt.ylabel("state t", fontsize=12)
-    plt.xlabel("state t+1", fontsize=12)
-    plt.title("Transition matrix", fontsize=13)
+            ax2.text(j,i,f"{trans_mat[i,j]:.2f}", ha='center', va='center', fontsize=10)
+    ax2.set_xticks(range(num_states)); ax2.set_yticks(range(num_states))
+    ax2.set_xticklabels([str(i+1) for i in range(num_states)], fontsize=9)
+    ax2.set_yticklabels([str(i+1) for i in range(num_states)], fontsize=9)
+    ax2.set_xlabel("t+1"); ax2.set_ylabel("t")
+    ax2.set_title("Transition matrix")
+    clean_spines(ax2)
 
-    # Panel 3: state occupancy
-    plt.subplot(1, 5, 3)
-    for z, occ in enumerate(state_occupancies):
-        plt.bar(z, occ, width=0.8, color=cols[z])
-    plt.xticks(range(num_states), [str(i+1) for i in range(num_states)], fontsize=10)
-    plt.xlabel('state', fontsize=12)
-    plt.ylabel('occupancy', fontsize=12)
-    plt.title("State occupancy", fontsize=13)
+    # 3: Occupancy
+    ax3 = plt.subplot(1,5,3)
+    ax3.bar(range(num_states), state_occupancies, color=cols, width=0.8)
+    ax3.set_xticks(range(num_states))
+    ax3.set_xticklabels([str(i+1) for i in range(num_states)], fontsize=10)
+    ax3.set_xlabel("state"); ax3.set_ylabel("occupancy")
+    ax3.set_title("State occupancy")
+    clean_spines(ax3)
 
-    # Panel 4: empirical dwell time histogram
-    plt.subplot(1, 5, 4)
-    all_dwell_times = dwell_info[:, 0]
-    bins = np.histogram_bin_edges(all_dwell_times, bins=30)
+    # 4: Empirical dwell
+    ax4 = plt.subplot(1,5,4)
+    all_d = dwell_info[:,0]
+    bins = np.histogram_bin_edges(all_d, bins=30)
     for k in range(num_states):
-        dwell_k = dwell_info[dwell_info[:, 1] == k][:, 0]
-        plt.hist(dwell_k, bins=bins, histtype='step', 
-                 label=f'state {k+1}', color=cols[k], linewidth=1.5)
-        plt.axvline(np.median(dwell_k), color=cols[k], linestyle='--', linewidth=1.2)
-    plt.xlabel("Dwell time (trials)", fontsize=10)
-    plt.ylabel("Count", fontsize=10)
-    plt.title("Empirical dwell", fontsize=13)
+        dk = dwell_info[dwell_info[:,1]==k][:,0]
+        ax4.hist(dk, bins=bins, histtype='step', color=cols[k], lw=1.5)
+        ax4.axvline(np.median(dk), color=cols[k], ls='--', lw=1.2)
+    ax4.set_xlabel("dwell (trials)"); ax4.set_title("Empirical dwell")
+    clean_spines(ax4)
 
-    # Panel 5: expected dwell time from trans_mat
-    plt.subplot(1, 5, 5)
+    # 5: Expected dwell
+    ax5 = plt.subplot(1,5,5)
     P = np.exp(trans_mat) if np.all(trans_mat <= 0) else trans_mat
-    dwell_exp = 1 / (1 - np.diag(P))
-    for k in range(num_states):
-        plt.bar(k, dwell_exp[k], color=cols[k], width=0.8)
-        plt.text(k, dwell_exp[k] + 1, f"{dwell_exp[k]:.1f}", ha='center', fontsize=9)
-    plt.xticks(range(num_states), [f'{i+1}' for i in range(num_states)], fontsize=10)
-    plt.ylabel("Trials", fontsize=10)
-    plt.title("Expected dwell", fontsize=13)
+    exp_d = 1/(1 - np.diag(P))
+    ax5.bar(range(num_states), exp_d, color=cols, width=0.8)
+    ymax = exp_d.max() * 1.15
+    ax5.set_ylim(0, ymax)
+    for k,val in enumerate(exp_d):
+        ax5.text(k, val + ymax*0.02, f"{val:.1f}", ha='center', fontsize=9)
+    ax5.set_xticks(range(num_states))
+    ax5.set_xticklabels([str(i+1) for i in range(num_states)], fontsize=10)
+    ax5.set_ylabel("trials"); ax5.set_title("Expected dwell")
+    clean_spines(ax5)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0,0,1,0.88])
+    plt.suptitle(f"{animal}: {n_sessions} sessions | trials/session = [{trials_str}]",
+                 fontsize=14)
 
     # Save
     if unbiased:
-        sss = Path('/home/mic/glm-hmm/results/individual_fit_own',
-                   run_description, 'pngs')
+        save_dir = Path('/home/mic/glm-hmm/results/individual_fit_own',
+                        run_description, 'pngs')
     else:
-        sss = Path(pth_eng, run_description, 'pngs')
-    sss.mkdir(parents=True, exist_ok=True)
-    fig.savefig(Path(sss, f'{animal}_model_params.png'), bbox_inches='tight')
+        save_dir = Path(pth_eng, run_description, 'pngs')
+    save_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(save_dir / f'{animal}_model_params.png', bbox_inches='tight')
 
 
 def do_for_all(run_description='as_paper_scripts', unbiased=False):
@@ -458,7 +471,7 @@ def do_for_all(run_description='as_paper_scripts', unbiased=False):
 #######################
 
 
-def plot_dwell_times_hist_all(unbiased=True):
+def plot_dwell_times_hist_all(unbiased=False):
     '''
     For all animals, load params file, compute dwell times
     and plot a histogram per state. Also show expected dwell times
@@ -512,12 +525,28 @@ def plot_dwell_times_hist_all(unbiased=True):
         axs[0].hist(data, bins=bins_empirical, histtype='step',
                     color=colors[state], linewidth=1.5,
                     label=f"State {state + 1}", density=True)
-        axs[0].axvline(np.median(data), linestyle=':', color=colors[state], linewidth=1.2)
+
+        med = np.median(data)
+        axs[0].axvline(med, linestyle=':', color=colors[state], linewidth=1.2)
+
+    axs[0].set_ylim(top=axs[0].get_ylim()[1] * 1.1)
+
+    offsets = [0.97, 0.90, 0.83]
+    for idx, state in enumerate(sorted(all_dwell_times)):
+        data = np.array(all_dwell_times[state])
+        med = np.median(data)
+        axs[0].text(med + 0.5, axs[0].get_ylim()[1] * offsets[idx],
+                    f"{med:.0f}", color=colors[state],
+                    ha='left', va='top', fontsize=9) 
 
     axs[0].set_xlabel("Empirical dwell time (trials)", fontsize=11)
     axs[0].set_ylabel("Density", fontsize=11)
     axs[0].set_title("Pooled empirical dwell time per state", fontsize=12)
     axs[0].legend(fontsize=9)
+    # despine
+    axs[0].spines['top'].set_visible(False)
+    axs[0].spines['right'].set_visible(False)
+
 
     # ---------- Expected dwell time histogram ----------
     max_expected = np.max([np.max(expected_dwell[s]) for s in expected_dwell])
@@ -528,12 +557,26 @@ def plot_dwell_times_hist_all(unbiased=True):
         axs[1].hist(data, bins=bins_expected, histtype='step',
                     color=colors[state], linewidth=1.5,
                     label=f"State {state + 1}", density=True)
-        axs[1].axvline(np.median(data), linestyle=':', color=colors[state], linewidth=1.2)
+        med_exp = np.median(data)
+        axs[1].axvline(med_exp, linestyle=':', color=colors[state], linewidth=1.2)
+
+    axs[1].set_ylim(top=axs[1].get_ylim()[1] * 1.1)
+
+    for idx, state in enumerate(sorted(expected_dwell)):
+        data = np.array(expected_dwell[state])
+        med_exp = np.median(data)
+        axs[1].text(med_exp + 0.5, axs[1].get_ylim()[1] * offsets[idx],
+                    f"{med_exp:.1f}", color=colors[state],
+                    ha='left', va='top', fontsize=9)
 
     axs[1].set_xlabel("Expected dwell time (trials)", fontsize=11)
     axs[1].set_ylabel("Density", fontsize=11)
     axs[1].set_title("Expected dwell time across animals", fontsize=12)
     axs[1].legend(fontsize=9)
+     # despine   
+    axs[1].spines['top'].set_visible(False)
+    axs[1].spines['right'].set_visible(False)
+
 
     plt.tight_layout()
 
@@ -605,6 +648,52 @@ def collect_trial_posteriors(unbiased=False, run_description='as_paper_scripts')
     df.to_csv(out_file, index=False)
     return df
 
+
+def plot_state_probabilities_last_trials(n_last_trials=400):
+    """
+    For each session (eid), extract last N trials and average
+    posterior probabilities across sessions.
+    Plot how p(state1), p(state2), p(state3) change near session end.
+    
+    Parameters:
+        df : pd.DataFrame with columns ['animal', 'eid', 'p_state1', 'p_state2', 'p_state3']
+        n_last_trials : int, number of trials from session end to consider
+    """
+
+    df = collect_trial_posteriors()
+    eids = df['eid'].unique()
+    prob_arrays = {s: [] for s in ['p_state1', 'p_state2', 'p_state3']}
+
+    for eid in eids:
+        df_eid = df[df['eid'] == eid]
+        if len(df_eid) < 10:
+            continue
+        df_tail = df_eid.iloc[-n_last_trials:]  # take last N trials
+        n = len(df_tail)
+        for s in prob_arrays:
+            probs = df_tail[s].values
+            if n < n_last_trials:
+                # pad with NaN so we can still align across sessions
+                probs = np.pad(probs, (n_last_trials - n, 0), constant_values=np.nan)
+            prob_arrays[s].append(probs)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    x = np.arange(-n_last_trials, 0)
+
+    for s, color in zip(['p_state1', 'p_state2', 'p_state3'],
+                        ['#ff7f00', '#4daf4a', '#377eb8']):
+        dat = np.array(prob_arrays[s])
+        mean_prob = np.nanmean(dat, axis=0)
+        ax.plot(x, mean_prob, label=s, color=color)
+
+    ax.set_xlabel('Trial number from session end')
+    ax.set_ylabel('Average posterior probability')
+    ax.set_title(f"State probabilities in final {n_last_trials} trials")
+    ax.legend()
+    sns.despine(trim=True)
+    plt.tight_layout()
+    plt.show()   
 
 
 ####################
@@ -825,3 +914,6 @@ def plot_tr_number_vs_scores():
     sns.despine(trim=True)
     plt.tight_layout()
     plt.show()
+
+
+ 
