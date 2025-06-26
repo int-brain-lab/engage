@@ -12,6 +12,18 @@ from collections import defaultdict
 from brainwidemap import bwm_query
 
 
+########
+'''
+Code adapted from 
+https://github.com/zashwood/glm-hmm/tree/main
+
+install ssm from Zoe's fork like so:
+https://github.com/zashwood/ssm
+'''
+########
+
+
+
 one = ONE()
 pth_eng = Path(one.cache_dir, 'engaged')
 pth_eng.mkdir(parents=True, exist_ok=True)
