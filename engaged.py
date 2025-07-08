@@ -283,7 +283,7 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
 
 
     ## from paper scripts global fit
-    glmhmm.params = [[np.array([-0.52493862, -1.64298306, -1.53708898])],
+    full_params = [[np.array([-0.52493862, -1.64298306, -1.53708898])],
     [np.array([[-0.02608457, -4.25327563, -4.46282725],
             [-3.04799552, -0.05351097, -5.370778  ],
             [-3.09435783, -5.83956581, -0.04941527]])],
@@ -296,6 +296,12 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
             [[-1.20628874e+00, -3.20944513e-01, -1.98757460e-01,
             -1.62621352e+00]]])]
 
+    
+    glmhmm.params = [
+        [full_params[0][0][:num_states]],  # truncate pi0
+        [full_params[1][0][:num_states, :num_states]],  # square transition matrix
+        full_params[2][:num_states]  # GLM weights
+    ]
 
     glmhmm.fit(datas,
                 inputs=inputs,
@@ -328,6 +334,12 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
 
 
 def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False):
+
+    '''
+    Plot model parameters for a single animal.
+    e.g. animal = 'NYU-11' for unbiased = False. 
+    '''
+
     # Load model parameters
     if unbiased:
         ttt = '/home/mic/glm-hmm/results/individual_fit_own'
@@ -336,6 +348,7 @@ def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False
 
     animal_file = Path(ttt, run_description, 'params',
                        f'{animal}_model_params.npy')
+
     model_params = np.load(animal_file, allow_pickle=True).flat[0]
 
     gen_weights     = model_params['gen_weights']
@@ -442,7 +455,22 @@ def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False
     fig.savefig(save_dir / f'{animal}_model_params.png', bbox_inches='tight')
 
 
-def do_for_all(run_description='as_paper_scripts', unbiased=False):
+# def plot_psychometric_curve(animal, run_description='as_paper_scripts', unbiased=False):
+#     '''
+#     For a single animal, load trial info, load posterior probabilities,
+#     then plot 4 panels in one row; 
+#     a psychometric curve for each state per contrast with a dot per trial,
+#     dot being red if 
+
+
+#     # trials = one.load_object(eid, 'trials')
+#     # ttt = pth_eng
+
+#     # animal_file = Path(ttt, run_description, 'params',
+#     #                    f'{animal}_model_params.npy')
+
+
+def do_for_all(run_description='K_2', unbiased=False):
     '''
     Run model fitting and plotting for all animals
     run_description: 'standard_init' for standard initialization
@@ -466,12 +494,71 @@ def do_for_all(run_description='as_paper_scripts', unbiased=False):
         print(f'Processed {k} out of {len(animals)} animals')
 
 
+def pool_behavioral_data():
+    '''
+    For all BWM mice, load trial data, save as dataframe.
+    
+    Returns:
+        df_all: pd.DataFrame
+            Dataframe with columns: 
+            ['animal', 'eid', 'stimLeft', 'stimRight', 
+             'rewarded', 'probabilityLeft', 'probabilityRight']
+    '''
+    columns = ['animal', 'eid', 'stimLeft', 'stimRight', 
+               'rewarded', 'probabilityLeft', 'probabilityRight']
+
+    data = []
+    oo = bwm_query()
+    all_rows = []
+
+    k = 0
+    for animal in oo['subject'].unique():
+        eids = np.unique(oo[oo['subject'] == animal]['eid'].values)
+
+        for eid in eids:
+            try:
+                trials = one.load_object(eid, 'trials')
+            except Exception as e:
+                print(f"Skipping {eid} due to load error: {e}")
+                continue
+
+            # Extract variables
+            stimLeft = trials['contrastLeft']
+            stimRight = trials['contrastRight']
+            rewarded = trials['feedbackType']
+            probLeft = trials['probabilityLeft']
+            probRight = 1 - probLeft
+
+            n_trials = len(stimLeft)
+
+
+
+
+            for i in range(n_trials):
+                row = {
+                    'animal': animal,
+                    'eid': eid,
+                    'contrastLeft': stimLeft[i],
+                    'contrastRight': stimRight[i],
+                    'rewarded': rewarded[i],
+                    'probabilityLeft': probLeft[i]
+                }
+                all_rows.append(row)
+        
+        print(f"Processed {animal} k={k+1} of {len(oo['subject'].unique())}")
+        k += 1
+
+    df_all = pd.DataFrame(all_rows, columns=columns)
+
+    df_all.to_parquet(Path(pth_eng, 'bwm_behavioral_data.pqt'))
+
+
+
 #######################
 ### meta analyses
 #######################
 
-
-def plot_dwell_times_hist_all(unbiased=False):
+def plot_dwell_times_hist_all(unbiased=False, run_description='K_2'):
     '''
     For all animals, load params file, compute dwell times
     and plot a histogram per state. Also show expected dwell times
@@ -481,10 +568,10 @@ def plot_dwell_times_hist_all(unbiased=False):
     if unbiased:
         # for unbiased trials
         param_dir = Path('/home/mic/glm-hmm/results/individual_fit_own/'
-                         'as_paper_scripts/params')
+                         f'{run_description}/params')
     else:
         # for biased trials
-        param_dir = Path(pth_eng, 'as_paper_scripts', 'params')
+        param_dir = Path(pth_eng, run_description, 'params')
 
     animal_files = sorted(param_dir.glob("*_model_params.npy"))                   
     if not animal_files:
@@ -586,7 +673,7 @@ def plot_dwell_times_hist_all(unbiased=False):
 
 
 
-def collect_trial_posteriors(unbiased=False, run_description='as_paper_scripts'):
+def collect_trial_posteriors(unbiased=False, run_description='K_2'):
     """
     Assemble trial-wise posterior state probabilities across animals.
     Output: DataFrame with columns [animal, eid, p_state1, p_state2, p_state3]
@@ -635,13 +722,13 @@ def collect_trial_posteriors(unbiased=False, run_description='as_paper_scripts')
             eid = path_to_eid[sess_path]
             trial_idx = np.where(np.array(session) == sess_path)[0]
             for p in posterior_concat[trial_idx]:
-                all_rows.append({
+                row = {
                     'animal': animal,
                     'eid': eid,
-                    'p_state1': p[0],
-                    'p_state2': p[1],
-                    'p_state3': p[2],
-                })
+                }
+                for i, prob in enumerate(p):
+                    row[f'p_state{i+1}'] = prob
+                all_rows.append(row)
 
     df = pd.DataFrame(all_rows)
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -649,20 +736,23 @@ def collect_trial_posteriors(unbiased=False, run_description='as_paper_scripts')
     return df
 
 
-def plot_state_probabilities_last_trials(n_last_trials=400):
+def plot_state_probabilities_last_trials(n_last_trials=400, run_description='K_2'):
     """
     For each session (eid), extract last N trials and average
     posterior probabilities across sessions.
-    Plot how p(state1), p(state2), p(state3) change near session end.
-    
-    Parameters:
-        df : pd.DataFrame with columns ['animal', 'eid', 'p_state1', 'p_state2', 'p_state3']
-        n_last_trials : int, number of trials from session end to consider
-    """
+    Plot how p(state1), p(state2), ..., p(stateN) change near session end.
 
-    df = collect_trial_posteriors()
+    Parameters:
+        n_last_trials : int, number of trials from session end to consider
+        run_description : str, model name to load posteriors from
+    """
+    df = collect_trial_posteriors(run_description=run_description)
     eids = df['eid'].unique()
-    prob_arrays = {s: [] for s in ['p_state1', 'p_state2', 'p_state3']}
+
+    # Automatically detect the number of states from column names
+    state_cols = sorted([col for col in df.columns if col.startswith('p_state')],
+                        key=lambda x: int(x.split('p_state')[1]))
+    prob_arrays = {s: [] for s in state_cols}
 
     for eid in eids:
         df_eid = df[df['eid'] == eid]
@@ -670,19 +760,18 @@ def plot_state_probabilities_last_trials(n_last_trials=400):
             continue
         df_tail = df_eid.iloc[-n_last_trials:]  # take last N trials
         n = len(df_tail)
-        for s in prob_arrays:
+        for s in state_cols:
             probs = df_tail[s].values
             if n < n_last_trials:
-                # pad with NaN so we can still align across sessions
+                # pad with NaN so we can align across sessions
                 probs = np.pad(probs, (n_last_trials - n, 0), constant_values=np.nan)
             prob_arrays[s].append(probs)
 
     fig, ax = plt.subplots(figsize=(6, 4))
-
     x = np.arange(-n_last_trials, 0)
 
-    for s, color in zip(['p_state1', 'p_state2', 'p_state3'],
-                        ['#ff7f00', '#4daf4a', '#377eb8']):
+    palette = sns.color_palette('Set2', n_colors=len(state_cols))
+    for s, color in zip(state_cols, palette):
         dat = np.array(prob_arrays[s])
         mean_prob = np.nanmean(dat, axis=0)
         ax.plot(x, mean_prob, label=s, color=color)
@@ -693,7 +782,191 @@ def plot_state_probabilities_last_trials(n_last_trials=400):
     ax.legend()
     sns.despine(trim=True)
     plt.tight_layout()
-    plt.show()   
+    plt.show() 
+
+
+def merge_frames(run_description='as_paper_scripts', rerun=False):
+    '''
+    Merge the behavioral frame with the posterior probabilities frame.
+    
+    Ensures exact row-wise match by animal and eid.
+    Assumes trial order in both files is preserved.
+    
+    Returns:
+        df_merged : pd.DataFrame
+    '''
+
+    # load if file exists
+    base_dir = Path(pth_eng)
+    out_file = base_dir / run_description / 'merged_behavioral_and_states.csv'
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    if out_file.exists() and not rerun:
+        return pd.read_csv(out_file)
+
+    else:    
+        print('Merging behavioral and state data...')
+        
+        state_file = base_dir / run_description / 'trial_posteriors_all_animals.csv'
+        behav_file = base_dir / 'bwm_behavioral_data.pqt'
+
+        # Load data
+        df_states = pd.read_csv(state_file)
+        df_behavior = pd.read_parquet(behav_file)
+
+        # Sort both frames for consistent merge
+        df_states = df_states.sort_values(by=['animal', 'eid']).reset_index(drop=True)
+        df_behavior = df_behavior.sort_values(by=['animal', 'eid']).reset_index(drop=True)
+
+        # Check that both frames have the same length
+        assert len(df_states) == len(df_behavior), \
+            f"Length mismatch: {len(df_states)} state rows vs {len(df_behavior)} behavioral rows"
+
+        # Check row-wise equality of animal and eid columns
+        assert np.all(df_states['animal'].values == df_behavior['animal'].values), \
+            "Mismatch in 'animal' column order"
+        assert np.all(df_states['eid'].values == df_behavior['eid'].values), \
+            "Mismatch in 'eid' column order"
+
+        # Merge column-wise
+        df_merged = pd.concat([df_behavior.reset_index(drop=True), 
+                            df_states.drop(columns=['animal', 'eid']).reset_index(drop=True)], axis=1)
+
+        # create signed ccontrast column
+        cl = df_merged['contrastLeft'].fillna(0).values
+        cr = df_merged['contrastRight'].fillna(0).values    
+        signed_contrast = cr - cl
+        df_merged['signed_contrast'] = signed_contrast
+
+        # if key probabilityRight exists, delete it
+        if 'probabilityRight' in df_merged.columns:
+            df_merged.drop(columns=['probabilityRight'], inplace=True)
+
+        # save
+        df_merged.to_csv(out_file, index=False)
+
+        return df_merged
+
+
+#     Panel 2:
+#     y is as proportion of right choices,
+#     on x axis the signed contrast. Per session and contrast, average across all trials with the same probilityLeft and show that point in red (blue) if probabilityLeft = 0.2 (0.8).
+#     red (blue) line plot as average across all red (blue) dots
+
+#     Panel 3-5:
+#     Same as 2, but restrict data to trials with posterior probability of state 1, (2, 3) = is max across states for this trial. 
+
+
+def plot_psychometric_curves(run_description='as_paper_scripts', state_only=None):
+    '''
+    Plot psychometric curves for each state across all animals.
+    One row, 5 panels. 
+    
+    Panel 1:
+    y has proportion of right choices,
+    on x axis the signed contrast. Pool across animals, one dot per [session,block] tuple, i.e. consecutive trials 
+    with the same probabilityLeft; dots colored red for probabilityLeft = 0.2
+    and blue for probabilityLeft = 0.8.
+    red (blue) line plot as average across all red (blue) dots
+
+    Args:
+        run_description: which merged dataset to use
+        state_only: None or 1/2/3 — restrict to trials where p_stateX > sum of other states
+    '''   
+
+    df = merge_frames(run_description=run_description)
+    df = df.dropna(subset=['signed_contrast', 'rewarded'])
+
+    # Restrict to trials dominated by one state
+    if state_only in [1, 2, 3]:
+        p_cols = ['p_state1', 'p_state2', 'p_state3']
+        target = f'p_state{state_only}'
+        others = [col for col in p_cols if col != target]
+        df = df[df[target] > df[others[0]] + df[others[1]]]
+
+    # Determine choice_right
+    right_correct = df['contrastLeft'].isna() & (df['rewarded'] == 1)
+    right_incorrect = df['contrastRight'].isna() & (df['rewarded'] == -1)
+    df['choice_right'] = right_correct | right_incorrect
+
+    # Create block id and block key
+    df['block_id'] = df.groupby('eid')['probabilityLeft'].transform(
+        lambda x: (x != x.shift(1)).cumsum()
+    )
+    df['block_key'] = df['eid'].astype(str) + '_block' + df['block_id'].astype(str)
+
+    color_map = {0.2: 'red', 0.8: 'blue'}
+
+    fig, ax = plt.subplots()
+
+    # For each block_key, for each signed contrast within, get frac right
+    block_vals = []
+    for block_key, block_df in df.groupby('block_key'):
+        p_left = block_df['probabilityLeft'].iloc[0]
+        for contrast, contrast_df in block_df.groupby('signed_contrast'):
+            if len(contrast_df) < 5:
+                continue
+            frac_right = contrast_df['choice_right'].mean()
+            block_vals.append({
+                'signed_contrast': contrast,
+                'frac_right': frac_right,
+                'probabilityLeft': p_left
+            })
+
+    df_blocks = pd.DataFrame(block_vals)
+    jitter_strength = 0.02
+    rng = np.random.default_rng(seed=0)
+
+    avg_curves = {}
+
+    for p_left in [0.2, 0.8]:
+        dat = df_blocks[df_blocks['probabilityLeft'] == p_left].copy()
+        jitter = rng.uniform(-jitter_strength, jitter_strength, size=len(dat))
+        dat['jittered_contrast'] = dat['signed_contrast'] + jitter
+
+        ax.scatter(dat['jittered_contrast'], dat['frac_right'],
+                color=color_map[p_left], alpha=0.2, s=10)
+
+        avg = dat.groupby('signed_contrast')['frac_right'].agg(['mean', 'sem']).reset_index()
+        avg_curves[p_left] = avg  # <- store the correct one before plotting
+
+        ax.errorbar(avg['signed_contrast'], avg['mean'], yerr=avg['sem'],
+                    color=color_map[p_left], capsize=3,
+                    label=f'{"Right" if p_left == 0.2 else "Left"} blocks')
+
+    ax.set_xlabel("Signed contrast")
+    ax.set_ylabel("Proportion right choices")
+    ax.set_xlim(-1.05, 1.05)
+    ax.set_ylim(0, 1.05)
+    ax.legend()
+
+
+    ax.set_title(f"Psychometric curves for {run_description} - State {state_only if state_only else 'all'}")
+
+    # remove top and right spines
+    sns.despine(ax=ax, top=True, right=True)
+
+
+    ax_inset = ax.inset_axes([0.6, 0.1, 0.35, 0.35])  # [x0, y0, width, height]
+
+    avg_r = avg_curves[0.2].set_index('signed_contrast')
+    avg_l = avg_curves[0.8].set_index('signed_contrast')
+
+    # Compute difference
+    diff = avg_r['mean'] - avg_l['mean']
+
+    ax_inset.plot(diff.index, diff.values, color='black')
+    ax_inset.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+    ax_inset.set_title('Right - Left', fontsize=8)
+    ax_inset.set_xlabel('', fontsize=6)
+    ax_inset.set_ylabel('', fontsize=6)
+    ax_inset.tick_params(axis='both', which='major', labelsize=6)
+    ax_inset.yaxis.tick_right()
+    # remove top and right spines
+    sns.despine(ax=ax_inset, top=True, right=True)
+    ax_inset.text(.55, diff.max(), f'{diff.max():.2f}', fontsize=6, va='center')
+    fig.tight_layout()
+    plt.show()
+
 
 
 ####################
