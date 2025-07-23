@@ -10,7 +10,7 @@ from sklearn.preprocessing import scale
 import numpy.random as npr
 from collections import defaultdict
 from brainwidemap import bwm_query
-
+from matplotlib.ticker import MultipleLocator
 
 ########
 '''
@@ -33,13 +33,17 @@ pth_eng.mkdir(parents=True, exist_ok=True)
 ### utils
 ###########
 
-def compute_dwell_times_with_states(state_probs_list):
+def compute_dwell_times_with_states(state_probs_list, congru=True):
     """
     Compute dwell times and their corresponding states from posterior state probabilities.
 
     Parameters:
         state_probs_list : list of np.ndarray
             Each array is (n_trials, n_states), rows sum to 1.
+
+        congru: if True, compute dwell times only for congruent states
+                if false, compute for incongruent states,
+                if none, compute for all states
 
     Returns:
         dwell_info : np.ndarray of shape (n_dwell_periods, 2)
@@ -455,21 +459,6 @@ def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False
     fig.savefig(save_dir / f'{animal}_model_params.png', bbox_inches='tight')
 
 
-# def plot_psychometric_curve(animal, run_description='as_paper_scripts', unbiased=False):
-#     '''
-#     For a single animal, load trial info, load posterior probabilities,
-#     then plot 4 panels in one row; 
-#     a psychometric curve for each state per contrast with a dot per trial,
-#     dot being red if 
-
-
-#     # trials = one.load_object(eid, 'trials')
-#     # ttt = pth_eng
-
-#     # animal_file = Path(ttt, run_description, 'params',
-#     #                    f'{animal}_model_params.npy')
-
-
 def do_for_all(run_description='K_2', unbiased=False):
     '''
     Run model fitting and plotting for all animals
@@ -530,9 +519,6 @@ def pool_behavioral_data():
             probRight = 1 - probLeft
 
             n_trials = len(stimLeft)
-
-
-
 
             for i in range(n_trials):
                 row = {
@@ -672,6 +658,20 @@ def plot_dwell_times_hist_all(unbiased=False, run_description='K_2'):
     plt.savefig(fig_out, bbox_inches='tight', dpi=300)
 
 
+# def plot_emp_dwell_times_congru(run_description='K_2'):
+
+#     '''
+#     3 panels, one for all pooled empirical dwell times,
+#     one for dwell times when only considering congruent runs 
+#     (i.e. consecutive trials with the same dominating state in which
+#     the choices are congruent with the block bias),
+#     one for incongruent runs
+#     '''
+
+#     # get behavioral data with state probabilities, a row per trial
+#     df = merge_frames(run_description=run_description)
+
+
 
 def collect_trial_posteriors(unbiased=False, run_description='K_2'):
     """
@@ -752,19 +752,17 @@ def plot_state_probabilities_last_trials(n_last_trials=400, run_description='K_2
     # Automatically detect the number of states from column names
     state_cols = sorted([col for col in df.columns if col.startswith('p_state')],
                         key=lambda x: int(x.split('p_state')[1]))
+
     prob_arrays = {s: [] for s in state_cols}
 
     for eid in eids:
         df_eid = df[df['eid'] == eid]
-        if len(df_eid) < 10:
+        if len(df_eid) < n_last_trials:
             continue
         df_tail = df_eid.iloc[-n_last_trials:]  # take last N trials
         n = len(df_tail)
         for s in state_cols:
             probs = df_tail[s].values
-            if n < n_last_trials:
-                # pad with NaN so we can align across sessions
-                probs = np.pad(probs, (n_last_trials - n, 0), constant_values=np.nan)
             prob_arrays[s].append(probs)
 
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -847,123 +845,121 @@ def merge_frames(run_description='as_paper_scripts', rerun=False):
         return df_merged
 
 
-#     Panel 2:
-#     y is as proportion of right choices,
-#     on x axis the signed contrast. Per session and contrast, average across all trials with the same probilityLeft and show that point in red (blue) if probabilityLeft = 0.2 (0.8).
-#     red (blue) line plot as average across all red (blue) dots
-
-#     Panel 3-5:
-#     Same as 2, but restrict data to trials with posterior probability of state 1, (2, 3) = is max across states for this trial. 
-
-
-def plot_psychometric_curves(run_description='as_paper_scripts', state_only=None):
+def plot_psychometric_curves(run_description='K_3'):
     '''
-    Plot psychometric curves for each state across all animals.
-    One row, 5 panels. 
-    
-    Panel 1:
-    y has proportion of right choices,
-    on x axis the signed contrast. Pool across animals, one dot per [session,block] tuple, i.e. consecutive trials 
-    with the same probabilityLeft; dots colored red for probabilityLeft = 0.2
-    and blue for probabilityLeft = 0.8.
-    red (blue) line plot as average across all red (blue) dots
-
-    Args:
-        run_description: which merged dataset to use
-        state_only: None or 1/2/3 — restrict to trials where p_stateX > sum of other states
+    Psychometric curves with multiple panels:
+    Panel 1: All states combined
+    Panel 2+: One panel per state, filtered by dominant state
     '''   
 
     df = merge_frames(run_description=run_description)
     df = df.dropna(subset=['signed_contrast', 'rewarded'])
 
-    # Restrict to trials dominated by one state
-    if state_only in [1, 2, 3]:
-        p_cols = ['p_state1', 'p_state2', 'p_state3']
-        target = f'p_state{state_only}'
-        others = [col for col in p_cols if col != target]
-        df = df[df[target] > df[others[0]] + df[others[1]]]
+    # Identify states
+    state_cols = sorted([col for col in df.columns if col.startswith('p_state')],
+                        key=lambda x: int(x.split('p_state')[1]))
+    n_states = len(state_cols)
 
-    # Determine choice_right
+    # Compute choice_right
     right_correct = df['contrastLeft'].isna() & (df['rewarded'] == 1)
     right_incorrect = df['contrastRight'].isna() & (df['rewarded'] == -1)
     df['choice_right'] = right_correct | right_incorrect
 
-    # Create block id and block key
+    # Block info
     df['block_id'] = df.groupby('eid')['probabilityLeft'].transform(
         lambda x: (x != x.shift(1)).cumsum()
     )
     df['block_key'] = df['eid'].astype(str) + '_block' + df['block_id'].astype(str)
 
     color_map = {0.2: 'red', 0.8: 'blue'}
+    fig, axes = plt.subplots(1, n_states + 1, figsize=(5 * (n_states + 1), 5), sharey=True, sharex=True)
 
-    fig, ax = plt.subplots()
+    # forinset sharey sharex
+    inset_axes = []
+    common_xlim = [-1, 1]
+    diff_curves = []
 
-    # For each block_key, for each signed contrast within, get frac right
-    block_vals = []
-    for block_key, block_df in df.groupby('block_key'):
-        p_left = block_df['probabilityLeft'].iloc[0]
-        for contrast, contrast_df in block_df.groupby('signed_contrast'):
-            if len(contrast_df) < 5:
-                continue
-            frac_right = contrast_df['choice_right'].mean()
-            block_vals.append({
-                'signed_contrast': contrast,
-                'frac_right': frac_right,
-                'probabilityLeft': p_left
-            })
+    for idx, state_only in enumerate([None] + list(range(n_states))):
+        ax = axes[idx]
+        if state_only is not None:
+            target = f'p_state{state_only + 1}'
+            others = [col for col in state_cols if col != target]
+            df_plot = df[df[target] > df[others].max(axis=1)]
+        else:
+            df_plot = df.copy()
 
-    df_blocks = pd.DataFrame(block_vals)
-    jitter_strength = 0.02
-    rng = np.random.default_rng(seed=0)
+        block_vals = []
+        for block_key, block_df in df_plot.groupby('block_key'):
+            p_left = block_df['probabilityLeft'].iloc[0]
+            for contrast, contrast_df in block_df.groupby('signed_contrast'):
+                if len(contrast_df) < 5:
+                    continue
+                frac_right = contrast_df['choice_right'].mean()
+                block_vals.append({
+                    'signed_contrast': contrast,
+                    'frac_right': frac_right,
+                    'probabilityLeft': p_left
+                })
 
-    avg_curves = {}
+        df_blocks = pd.DataFrame(block_vals)
+        jitter_strength = 0.02
+        rng = np.random.default_rng(seed=0)
+        avg_curves = {}
 
-    for p_left in [0.2, 0.8]:
-        dat = df_blocks[df_blocks['probabilityLeft'] == p_left].copy()
-        jitter = rng.uniform(-jitter_strength, jitter_strength, size=len(dat))
-        dat['jittered_contrast'] = dat['signed_contrast'] + jitter
+        for p_left in [0.2, 0.8]:
+            dat = df_blocks[df_blocks['probabilityLeft'] == p_left].copy()
+            jitter = rng.uniform(-jitter_strength, jitter_strength, size=len(dat))
+            dat['jittered_contrast'] = dat['signed_contrast'] + jitter
 
-        ax.scatter(dat['jittered_contrast'], dat['frac_right'],
-                color=color_map[p_left], alpha=0.2, s=10)
+            ax.scatter(dat['jittered_contrast'], dat['frac_right'],
+                       color=color_map[p_left], alpha=0.2, s=10)
 
-        avg = dat.groupby('signed_contrast')['frac_right'].agg(['mean', 'sem']).reset_index()
-        avg_curves[p_left] = avg  # <- store the correct one before plotting
+            avg = dat.groupby('signed_contrast')['frac_right'].agg(['mean', 'sem']).reset_index()
+            avg_curves[p_left] = avg
+            ax.errorbar(avg['signed_contrast'], avg['mean'], yerr=avg['sem'],
+                        color=color_map[p_left], capsize=3,
+                        label=f'{"Right" if p_left == 0.2 else "Left"} blocks')
 
-        ax.errorbar(avg['signed_contrast'], avg['mean'], yerr=avg['sem'],
-                    color=color_map[p_left], capsize=3,
-                    label=f'{"Right" if p_left == 0.2 else "Left"} blocks')
+        ax.set_xlabel("Signed contrast")
+        if idx == 0:
+            ax.set_ylabel("Proportion right choices")
+        ax.set_xlim(-1.05, 1.05)
+        ax.set_ylim(0, 1.05)
+        ax.yaxis.set_major_locator(MultipleLocator(0.25))
+        ax.xaxis.set_major_locator(MultipleLocator(0.5))
 
-    ax.set_xlabel("Signed contrast")
-    ax.set_ylabel("Proportion right choices")
-    ax.set_xlim(-1.05, 1.05)
-    ax.set_ylim(0, 1.05)
-    ax.legend()
+        ax.legend()
+        state_title = f"State {state_only + 1}" if state_only is not None else "All states"
+        ax.set_title(f"{run_description} - {state_title}")
+        sns.despine(ax=ax, top=True, right=True)
 
+        # Inset: difference curve
+        if all(k in avg_curves for k in [0.2, 0.8]):
+            ax_inset = ax.inset_axes([0.6, 0.1, 0.35, 0.35])
+            avg_r = avg_curves[0.2].set_index('signed_contrast')
+            avg_l = avg_curves[0.8].set_index('signed_contrast')
+            diff = avg_r['mean'] - avg_l['mean']
+            diff_curves.append(diff)
+            inset_axes.append(ax_inset)
+            ax_inset.plot(diff.index, diff.values, color='black')
+            ax_inset.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+            ax_inset.set_title('Right - Left', fontsize=8)
+            ax_inset.tick_params(axis='both', which='major', labelsize=6)
+            ax_inset.yaxis.tick_right()
+            sns.despine(ax=ax_inset, top=True, right=True)
+            ax_inset.text(.55, diff.max(), f'{diff.max():.2f}', fontsize=6, va='center')
+            ax_inset.patch.set_alpha(0)
+            ax_inset.set_facecolor('none')
 
-    ax.set_title(f"Psychometric curves for {run_description} - State {state_only if state_only else 'all'}")
+    common_ylim = [
+        min(diff.min() for diff in diff_curves),
+        max(diff.max() for diff in diff_curves)
+    ]
 
-    # remove top and right spines
-    sns.despine(ax=ax, top=True, right=True)
+    for ax_inset in inset_axes:
+        ax_inset.set_xlim(common_xlim)
+        ax_inset.set_ylim(common_ylim)
 
-
-    ax_inset = ax.inset_axes([0.6, 0.1, 0.35, 0.35])  # [x0, y0, width, height]
-
-    avg_r = avg_curves[0.2].set_index('signed_contrast')
-    avg_l = avg_curves[0.8].set_index('signed_contrast')
-
-    # Compute difference
-    diff = avg_r['mean'] - avg_l['mean']
-
-    ax_inset.plot(diff.index, diff.values, color='black')
-    ax_inset.axhline(0, color='gray', linestyle='--', linewidth=0.5)
-    ax_inset.set_title('Right - Left', fontsize=8)
-    ax_inset.set_xlabel('', fontsize=6)
-    ax_inset.set_ylabel('', fontsize=6)
-    ax_inset.tick_params(axis='both', which='major', labelsize=6)
-    ax_inset.yaxis.tick_right()
-    # remove top and right spines
-    sns.despine(ax=ax_inset, top=True, right=True)
-    ax_inset.text(.55, diff.max(), f'{diff.max():.2f}', fontsize=6, va='center')
     fig.tight_layout()
     plt.show()
 
