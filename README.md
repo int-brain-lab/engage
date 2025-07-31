@@ -3,7 +3,7 @@
 This repository adapts Zoe Ashwood’s GLM-HMM model for state-dependent behavior to work on **any IBL mouse** using the BrainWideMap (BWM) dataset. It enables model fitting, evaluation, and visualization of behavioral state dynamics for IBL animal (pooling sessions), resulting in a probability of engagement per trial.
 
 Original modeling framework:\
-➡️ [https://github.com/zashwood/glm-hmm](https://github.com/zashwood/glm-hmm)
+[https://github.com/zashwood/glm-hmm](https://github.com/zashwood/glm-hmm)
 
 ---
 
@@ -55,6 +55,26 @@ To process all animals:
 ```python
 do_for_all(run_description='K_2')
 ```
+
+## Data File: `merged_behavioral_and_states.pqt`
+
+This file contains trial-by-trial data from all BWM animals, merged with GLM-HMM model outputs, stored in **Parquet** format.
+
+### Column Descriptions
+
+| Column             | Description                                                                 |
+|--------------------|-----------------------------------------------------------------------------|
+| `animal`           | Mouse identifier (e.g., "NYU-11")                                           |
+| `eid`              | Experiment ID (unique per session)                                          |
+| `contrastLeft`     | Contrast level of the left visual stimulus on a given trial (NaN if none)   |
+| `contrastRight`    | Contrast level of the right visual stimulus on a given trial (NaN if none)  |
+| `rewarded`         | Trial outcome: `1` if rewarded, `-1` if not rewarded                        |
+| `probabilityLeft`  | Block-level bias: probability that the left side is correct on that trial   |
+| `p_state1`         | Posterior probability that the mouse was in latent state 1 (engaged) in this trial    |
+| `p_state2`         | Posterior probability of latent state 2 (disengaged)                                    |
+| `signed_contrast`  | Net stimulus contrast: `contrastRight - contrastLeft`, zero-centered        |
+
+`p_state1` is the engagement probability per trial.
 
 ---
 
