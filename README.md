@@ -50,7 +50,7 @@ model_single_mouse('NYU-11', run_description='K_2')
 plot_model_params('NYU-11', run_description='K_2')
 ```
 
-To process all animals:
+To process all IBL BWM animals:
 
 ```python
 do_for_all(run_description='K_2')
