@@ -1,6 +1,6 @@
 # GLM-HMM Modeling of IBL Mouse Behavior
 
-This repository adapts Zoe Ashwood’s GLM-HMM model for state-dependent behavior to work on **any IBL mouse** using the BrainWideMap (BWM) dataset. It enables model fitting, evaluation, and visualization of behavioral state dynamics for IBL animal (pooling sessions), resulting in a probability of engagement per trial.
+This repository adapts Zoe Ashwood’s GLM-HMM model for state-dependent behavior to work on **any IBL mouse**. It enables model fitting, evaluation, and visualization of behavioral state dynamics for IBL animals (pooling sessions), resulting in a probability of engagement per trial.
 
 Original modeling framework:\
 [https://github.com/zashwood/glm-hmm](https://github.com/zashwood/glm-hmm)
@@ -9,13 +9,13 @@ Original modeling framework:\
 
 ## Key Features
 
-- Adapted to work with **all IBL animals**, both biased and unbiased paradigms
-- Compatible with BWM data through the [`brainwidemap`](https://github.com/int-brain-lab/brainwidemap) library
+- Adapted to work with **any IBL animal**, both biased and unbiased paradigms
+- Computed for BWM data through the [`brainwidemap`](https://github.com/int-brain-lab/brainwidemap) library
 - Posterior state inference and GLM-HMM parameter fitting
 - Utilities for:
   - Animal-wise model fitting
   - Visualizing generative weights and state transitions
-  - Pooling and analyzing emirical and expected dwell times and engagement probability
+  - Pooling and analyzing emirical and expected dwell times
 
 ---
 
