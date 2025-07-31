@@ -1,6 +1,6 @@
 # GLM-HMM Modeling of IBL Mouse Behavior
 
-This repository adapts Zoe Ashwood’s GLM-HMM model for state-dependent behavior to work on **any IBL mouse** using the BrainWideMap (BWM) dataset. It enables model fitting, evaluation, and visualization of behavioral state dynamics across large-scale Neuropixels experiments.
+This repository adapts Zoe Ashwood’s GLM-HMM model for state-dependent behavior to work on **any IBL mouse** using the BrainWideMap (BWM) dataset. It enables model fitting, evaluation, and visualization of behavioral state dynamics for IBL animal (pooling sessions), resulting in a probability of engagement per trial.
 
 Original modeling framework:\
 ➡️ [https://github.com/zashwood/glm-hmm](https://github.com/zashwood/glm-hmm)
@@ -10,12 +10,12 @@ Original modeling framework:\
 ## Key Features
 
 - Adapted to work with **all IBL animals**, both biased and unbiased paradigms
-- Compatible with BWM data through the [`brainwidemap`](https://github.com/int-brain-lab/brainwidemap) interface
+- Compatible with BWM data through the [`brainwidemap`](https://github.com/int-brain-lab/brainwidemap) library
 - Posterior state inference and GLM-HMM parameter fitting
 - Utilities for:
   - Animal-wise model fitting
   - Visualizing generative weights and state transitions
-  - Pooling and analyzing dwell times and engagement metrics
+  - Pooling and analyzing emirical and expected dwell times and engagement probability
 
 ---
 
@@ -43,7 +43,7 @@ Other required packages (install via pip or conda):
 
 ## Example Usage
 
-To fit a 2-state GLM-HMM model to an individual mouse (p(state 1) = probability to be engaged in that trial):
+To fit a 2-state GLM-HMM model to an individual IBL mouse, e.g. 'NYU-11', (p(state 1) = probability to be engaged in that trial):
 
 ```python
 model_single_mouse('NYU-11', run_description='K_2')
