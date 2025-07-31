@@ -70,6 +70,60 @@ def compute_dwell_times_with_states(state_probs_list, congru=True):
     return np.array(dwell_info)
 
 
+def compute_dwell_times_from_df(df, congru=None):
+    """
+    Computes dwell times from a DataFrame with state probabilities and trial info.
+    
+    Parameters:
+        df : pd.DataFrame
+            Must include columns: ['p_state1', ..., 'rewarded', 'probabilityLeft', ...]
+        congru : True, False, or None
+            If True: keep only congruent choices
+            If False: keep only incongruent
+            If None: use all
+    Returns:
+        dwell_info : np.ndarray of shape (n_runs, 2)
+            column 0: dwell time
+            column 1: state index (int)
+    """
+    p_cols = sorted([col for col in df.columns if col.startswith('p_state')],
+                    key=lambda x: int(x.split('p_state')[1]))
+
+    # Assign most likely state to each trial
+    df = df.copy()
+    df['state'] = df[p_cols].values.argmax(axis=1)
+
+    # Determine choice direction
+    df['choice_right'] = (df['contrastLeft'].isna() & (df['rewarded'] == 1)) | \
+                         (df['contrastRight'].isna() & (df['rewarded'] == -1))
+
+    if congru is not None:
+        congruent = (
+            ((df['probabilityLeft'] == 0.8) & (~df['choice_right'])) |
+            ((df['probabilityLeft'] == 0.2) & (df['choice_right']))
+        )
+        if congru is True:
+            df = df[congruent]
+        elif congru is False:
+            df = df[~congruent]
+
+    # Compute dwell times
+    state_seq = df['state'].values
+    dwell_info = []
+    current_state = state_seq[0]
+    count = 1
+    for s in state_seq[1:]:
+        if s == current_state:
+            count += 1
+        else:
+            dwell_info.append([count, current_state])
+            current_state = s
+            count = 1
+    dwell_info.append([count, current_state])  # final run
+
+    return np.array(dwell_info)
+
+
 def partition_data_by_session(inpt, y, mask, session):
     '''
     Partition inpt, y, mask by session
@@ -224,7 +278,7 @@ def process_bwm_mouse(animal, rerun=False):
 ### Model fitting and result plotting
 ############
 
-def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=False):
+def model_single_mouse(animal, run_description='K_2', unbiased=False):
     
     '''
     Train model on single mouse using parameters from notebook as
@@ -232,7 +286,8 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
     animal = 'CSHL_001'
     animals = np.load('/home/mic/glm-hmm/data/ibl/data_for_cluster'
                       '/data_by_animal/animal_list.npz')['arr_0']
-    run_description: 'standard_init' for standard initialization
+    run_description: 'K_2' for 2-state model, state 1 is engaged
+    unbiased: to reproduce Zoe's results on unbiased trials, see her repo
 
 
     '''
@@ -265,7 +320,7 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
     inputs, datas, masks = partition_data_by_session(inpt, y, mask, session)
                   
     # Model parameters
-    num_states = 3              # K
+    num_states = int(run_description[-1])             # K
     obs_dim = 1                 # D (for binary choice)
     input_dim = inpt.shape[1]   # M
     num_categories = 2          # C
@@ -337,7 +392,7 @@ def model_single_mouse(animal, run_description='as_paper_scripts', unbiased=Fals
                 'posterior_probs': posterior_probs})
 
 
-def plot_model_params(animal, run_description='as_paper_scripts', unbiased=False):
+def plot_model_params(animal, run_description='K_2', unbiased=False):
 
     '''
     Plot model parameters for a single animal.
@@ -658,19 +713,55 @@ def plot_dwell_times_hist_all(unbiased=False, run_description='K_2'):
     plt.savefig(fig_out, bbox_inches='tight', dpi=300)
 
 
-# def plot_emp_dwell_times_congru(run_description='K_2'):
+def plot_emp_dwell_times_congru(run_description='K_2'):
+    '''
+    3 panels:
+    - all empirical dwell times pooled
+    - dwell times for congruent runs (choices aligned with block bias)
+    - dwell times for incongruent runs
+    '''
 
-#     '''
-#     3 panels, one for all pooled empirical dwell times,
-#     one for dwell times when only considering congruent runs 
-#     (i.e. consecutive trials with the same dominating state in which
-#     the choices are congruent with the block bias),
-#     one for incongruent runs
-#     '''
+    df = merge_frames(run_description=run_description)
+    all_dwell = compute_dwell_times_from_df(df, congru=None)
+    congru_dwell = compute_dwell_times_from_df(df, congru=True)
+    incongru_dwell = compute_dwell_times_from_df(df, congru=False)
 
-#     # get behavioral data with state probabilities, a row per trial
-#     df = merge_frames(run_description=run_description)
+    dwell_sets = [all_dwell, congru_dwell, incongru_dwell]
+    labels = ['All trials', 'Congruent choices', 'Incongruent choices']
 
+    num_states = int(df[[c for c in df.columns if c.startswith("p_state")]].shape[1])
+    colors = ['#ff7f00', '#4daf4a', '#377eb8'][:num_states]
+
+    fig, axs = plt.subplots(3, 1, figsize=(7, 9), sharex=True)
+    offsets = [0.97, 0.90, 0.83]
+
+    for ax, dwell_data, label in zip(axs, dwell_sets, labels):
+        max_duration = np.max(dwell_data[:, 0])
+        bins = np.arange(1, max_duration + 2) - 0.5
+        for state in range(num_states):
+            data = dwell_data[dwell_data[:, 1] == state][:, 0]
+            ax.hist(data, bins=bins, histtype='step', color=colors[state],
+                    linewidth=1.5, density=True, label=f"State {state + 1}")
+            med = np.median(data)
+            ax.axvline(med, linestyle=':', color=colors[state], linewidth=1.2)
+            ax.text(med + 0.5, ax.get_ylim()[1] * offsets[state],
+                    f"{med:.0f}", color=colors[state], fontsize=9,
+                    ha='left', va='top')
+
+        n_trials = dwell_data[:, 0].sum()
+        ax.set_title(f"{label} (n = {n_trials} trials)", fontsize=12)
+        ax.set_ylabel("Density", fontsize=11)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.legend(fontsize=9)
+
+    axs[-1].set_xlabel("Empirical dwell time (trials)", fontsize=11)
+    axs[-1].set_xlim(left=0.5)
+    plt.tight_layout()
+
+    fig_out = Path(pth_eng) / run_description / 'pngs' / 'dwell_times_hist__empirical_all_congru_incongru.png'
+    fig_out.parent.mkdir(exist_ok=True, parents=True)
+    plt.savefig(fig_out, bbox_inches='tight', dpi=300)
 
 
 def collect_trial_posteriors(unbiased=False, run_description='K_2'):
