@@ -15,7 +15,7 @@ Original modeling framework:\
 - Utilities for:
   - Animal-wise model fitting
   - Visualizing generative weights and state transitions
-  - Pooling and analyzing emirical and expected dwell times
+  - Pooling and analyzing empirical and expected dwell times
 
 ---
 
